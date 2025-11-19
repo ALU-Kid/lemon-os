@@ -3,10 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 name: Publish Swagger
 
+# Disabled - Swagger is included in Docker build and available at /docs endpoint
+# This workflow was only for publishing to external repo
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   build:
