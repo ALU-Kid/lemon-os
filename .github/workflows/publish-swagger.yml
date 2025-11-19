@@ -62,12 +62,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check for deploy key secret
+        id: check-secret
+        run: |
+          if [ -z "${{ secrets.CITRINEOS_GITHUB_IO_DEPLOY_KEY }}" ]; then
+            echo "::notice::CITRINEOS_GITHUB_IO_DEPLOY_KEY secret not configured - skipping swagger publish"
+            echo "secret_available=false" >> $GITHUB_OUTPUT
+          else
+            echo "::notice::Deploy key available - proceeding with swagger publish"
+            echo "secret_available=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Download Swagger Artifact
+        if: steps.check-secret.outputs.secret_available == 'true'
         uses: actions/download-artifact@v4
         with:
           name: swagger-json
 
       - name: Checkout citrineos.github.io
+        if: steps.check-secret.outputs.secret_available == 'true'
         uses: actions/checkout@v4
         with:
           repository: citrineos/citrineos.github.io
@@ -75,6 +88,7 @@ jobs:
           path: citrineos.github.io
 
       - name: Push Swagger JSON
+        if: steps.check-secret.outputs.secret_available == 'true'
         run: |
           cd citrineos.github.io
           git checkout -b swagger-updates || git checkout swagger-updates
@@ -82,5 +96,13 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add ./docs/assets/swagger.json
-          git commit -m "Update Swagger JSON from PR"
+          git commit -m "Update Swagger JSON from PR" || echo "No changes to commit"
           git push -f origin swagger-updates --verbose
+
+      - name: Upload Swagger to Current Repo
+        if: steps.check-secret.outputs.secret_available == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: swagger-json-final
+          path: swagger.json
+          retention-days: 30
