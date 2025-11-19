@@ -236,10 +236,19 @@ export class CitrineOSServer {
     try {
       await this.initialize();
       await this._syncWebsocketConfig();
+
+      // Debug logging
+      console.log('=== SERVER CONFIG DEBUG ===');
+      console.log('this.host:', this.host);
+      console.log('this.port:', this.port);
+      console.log('this._config.centralSystem.host:', this._config.centralSystem.host);
+      console.log('this._config.centralSystem.port:', this._config.centralSystem.port);
+      console.log('=========================');
+
       await this._server
         .listen({
-          host: this.host,
-          port: this.port,
+          host: this.host || '0.0.0.0',
+          port: this.port || 8080,
         })
         .then((address) => {
           this._logger?.info(`Server listening at ${address}`);
