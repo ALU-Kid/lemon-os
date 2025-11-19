@@ -29,16 +29,21 @@ jobs:
       - name: Check for required secrets
         id: check-secrets
         run: |
-          if [ -z "${{ secrets.PAT }}" ] || \
-             [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ] || \
-             [ -z "${{ secrets.SSH_HOST }}" ] || \
-             [ -z "${{ secrets.SSH_USER }}" ] || \
-             [ -z "${{ secrets.WORK_DIR }}" ] || \
-             [ -z "${{ env.BRANCH_NAME }}" ]; then
-            echo "::notice::One or more secrets or branch name are missing - skipping deployment"
+          MISSING=""
+
+          [ -z "${{ secrets.PAT }}" ] && MISSING="${MISSING}PAT "
+          [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ] && MISSING="${MISSING}SSH_PRIVATE_KEY "
+          [ -z "${{ secrets.SSH_HOST }}" ] && MISSING="${MISSING}SSH_HOST "
+          [ -z "${{ secrets.SSH_USER }}" ] && MISSING="${MISSING}SSH_USER "
+          [ -z "${{ secrets.WORK_DIR }}" ] && MISSING="${MISSING}WORK_DIR "
+          [ -z "${{ env.BRANCH_NAME }}" ] && MISSING="${MISSING}BRANCH_NAME "
+
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing required secrets/vars: $MISSING"
+            echo "::notice::Please configure these in GitHub Settings > Secrets and variables > Actions"
             echo "available=false" >> $GITHUB_OUTPUT
           else
-            echo "::notice::All secrets and branch name available - proceeding with deployment"
+            echo "::notice::✅ All secrets and branch name available - proceeding with deployment"
             echo "available=true" >> $GITHUB_OUTPUT
           fi
 
