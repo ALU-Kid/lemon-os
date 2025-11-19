@@ -2,7 +2,7 @@ name: Build and Deploy to VPS
 
 # Secrets Required:
 # PAT: GitHub Personal Access Token (with packages:write scope)
-# SSH_PRIVATE_KEY: SSH Private Key (base64 content only, without -----BEGIN/END----- lines)
+# SSH_PRIVATE_KEY: Complete SSH Private Key (including -----BEGIN/END----- lines and all newlines)
 # SSH_HOST: VPS IP (72.61.143.94)
 # SSH_USER: SSH User (root)
 # WORK_DIR: Working Directory (/root/lemon-os/lemon-os/Server)
@@ -94,9 +94,7 @@ jobs:
       - name: Install SSH Key
         run: |
           mkdir -p ~/.ssh
-          echo "-----BEGIN OPENSSH PRIVATE KEY-----" > ~/.ssh/id_rsa
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" >> ~/.ssh/id_rsa
-          echo "-----END OPENSSH PRIVATE KEY-----" >> ~/.ssh/id_rsa
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
