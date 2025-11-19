@@ -1,0 +1,160 @@
+name: Build and Deploy to VPS
+
+# Secrets Required:
+# PAT: GitHub Personal Access Token (with packages:write scope)
+# SSH_PRIVATE_KEY: SSH Private Key (without BEGIN/END lines)
+# SSH_HOST: VPS IP (72.61.143.94)
+# SSH_USER: SSH User (root)
+# WORK_DIR: Working Directory (/root/lemon-os/lemon-os/Server)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/citrineos:latest
+  BRANCH_NAME: main
+
+jobs:
+  check-secrets:
+    name: Check Required Secrets
+    runs-on: ubuntu-latest
+    outputs:
+      secrets_available: ${{ steps.check-secrets.outputs.available }}
+      branch_name: ${{ env.BRANCH_NAME }}
+    steps:
+      - name: Check for required secrets
+        id: check-secrets
+        run: |
+          if [ -z "${{ secrets.PAT }}" ] || \
+             [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ] || \
+             [ -z "${{ secrets.SSH_HOST }}" ] || \
+             [ -z "${{ secrets.SSH_USER }}" ] || \
+             [ -z "${{ secrets.WORK_DIR }}" ] || \
+             [ -z "${{ env.BRANCH_NAME }}" ]; then
+            echo "::notice::One or more secrets or branch name are missing - skipping deployment"
+            echo "available=false" >> $GITHUB_OUTPUT
+          else
+            echo "::notice::All secrets and branch name available - proceeding with deployment"
+            echo "available=true" >> $GITHUB_OUTPUT
+          fi
+
+  build-image:
+    name: Build Docker Image
+    needs: check-secrets
+    if: needs.check-secrets.outputs.secrets_available == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        run: |
+          echo ${{ secrets.PAT }} | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+
+      - name: Build and Push Docker Image
+        run: |
+          cd Server
+          docker build -f deploy.Dockerfile -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} ..
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      - name: Image Info
+        run: |
+          echo "✅ Image built and pushed successfully"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          echo "Size: $(docker inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} | jq '.[0].Size' | numfmt --to=iec-i --suffix=B)"
+
+  deploy-to-server:
+    if: github.ref == format('refs/heads/{0}', needs.check-secrets.outputs.branch_name) && needs.check-secrets.outputs.secrets_available == 'true'
+    needs: [check-secrets, build-image]
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Update docker-compose.yml to use GHCR image
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'ENDSSH'
+            cd ${{ secrets.WORK_DIR }}
+
+            # Update docker-compose.yml to use GHCR image instead of building
+            if grep -q "build:" docker-compose.yml; then
+              echo "Updating docker-compose.yml to use pre-built image..."
+
+              # Backup original
+              cp docker-compose.yml docker-compose.yml.backup
+
+              # Replace build section with image reference
+              sed -i '/citrine:/,/build:/{ /build:/,/dockerfile:/d }' docker-compose.yml
+              sed -i '/citrine:$/a\    image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}' docker-compose.yml
+
+              echo "✅ docker-compose.yml updated"
+            fi
+          ENDSSH
+
+      - name: Login to GHCR on VPS
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'ENDSSH'
+            echo "${{ secrets.PAT }}" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+          ENDSSH
+
+      - name: Pull and Deploy
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'ENDSSH'
+            cd ${{ secrets.WORK_DIR }}
+
+            echo "=== Pulling new image ==="
+            docker compose pull citrine
+
+            echo "=== Recreating containers ==="
+            docker compose up -d --force-recreate citrine
+
+            echo "=== Waiting for services to start ==="
+            sleep 30
+
+            echo "=== Service Status ==="
+            docker compose ps
+
+            echo "✅ Deployment complete"
+          ENDSSH
+
+      - name: Verify Deployment
+        run: |
+          echo "Waiting for API to be ready..."
+          sleep 10
+
+          if curl -f -s http://${{ secrets.SSH_HOST }}:8083/health > /dev/null; then
+            echo "✅ API is responding"
+            curl http://${{ secrets.SSH_HOST }}:8083/health
+          else
+            echo "⚠️ API health check failed (may still be starting up)"
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf ~/.ssh
+
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo "🎉 Deployment completed successfully!"
+          echo ""
+          echo "Services:"
+          echo "  • API: http://${{ secrets.SSH_HOST }}:8083"
+          echo "  • Docs: http://${{ secrets.SSH_HOST }}:8083/docs"
+          echo "  • Domain: https://ocpp.gokabisa.com (once DNS configured)"
+          echo ""
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
