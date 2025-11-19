@@ -39,6 +39,19 @@ services:
     build:
       context: ../
       dockerfile: ./Server/deploy.Dockerfile
+    networks:
+      - default
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=n8n-compose_default"
+      # REST API routing
+      - "traefik.http.routers.citrine-api.rule=Host(`ocpp.gokabisa.com`) && PathPrefix(`/`)"
+      - "traefik.http.routers.citrine-api.entrypoints=websecure"
+      - "traefik.http.routers.citrine-api.tls=true"
+      - "traefik.http.routers.citrine-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.citrine-api.service=citrine-api"
+      - "traefik.http.services.citrine-api.loadbalancer.server.port=8080"
     volumes:
       - ../package-lock.json:/usr/local/apps/citrineos/package-lock-host.json
       - ../package.json:/usr/local/apps/citrineos/package.json
@@ -192,3 +205,8 @@ services:
       timeout: 10s
       retries: 20
       start_period: 5s
+
+networks:
+  traefik:
+    external: true
+    name: n8n-compose_default
