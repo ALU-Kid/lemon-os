@@ -25,7 +25,13 @@ jobs:
 
       - name: Build and Run Docker Compose
         run: |
-          docker compose -f ${{ github.workspace }}/Server/docker-compose.yml up -d
+          docker compose -f ${{ github.workspace }}/Server/docker-compose.ci.yml up -d
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Waiting for citrine service to be healthy..."
+          timeout 180 bash -c 'until docker compose -f ${{ github.workspace }}/Server/docker-compose.ci.yml ps citrine | grep -q "healthy"; do echo "Waiting..."; sleep 5; done'
+          echo "Service is healthy!"
 
       - name: Generate Swagger JSON
         run: |
@@ -48,7 +54,7 @@ jobs:
           path: swagger.json
 
       - name: Clean up Docker
-        run: docker compose -f ${{ github.workspace }}/Server/docker-compose.yml down
+        run: docker compose -f ${{ github.workspace }}/Server/docker-compose.ci.yml down
 
   publish-swagger:
     needs: build
