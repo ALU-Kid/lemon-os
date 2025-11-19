@@ -15,7 +15,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/citrineos:latest
+  IMAGE_NAME: citrineos:latest
   BRANCH_NAME: main
 
 jobs:
@@ -52,6 +52,8 @@ jobs:
     needs: check-secrets
     if: needs.check-secrets.outputs.secrets_available == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      image_name: ${{ steps.image-name.outputs.full_image }}
 
     steps:
       - name: Checkout code
@@ -60,6 +62,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Set lowercase image name
+        id: image-name
+        run: |
+          OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "full_image=${{ env.REGISTRY }}/${OWNER_LOWER}/${{ env.IMAGE_NAME }}" >> $GITHUB_OUTPUT
+
       - name: Login to GitHub Container Registry
         run: |
           echo ${{ secrets.PAT }} | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
@@ -67,14 +75,14 @@ jobs:
       - name: Build and Push Docker Image
         run: |
           cd Server
-          docker build -f deploy.Dockerfile -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} ..
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          docker build -f deploy.Dockerfile -t ${{ steps.image-name.outputs.full_image }} ..
+          docker push ${{ steps.image-name.outputs.full_image }}
 
       - name: Image Info
         run: |
           echo "✅ Image built and pushed successfully"
-          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-          echo "Size: $(docker inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} | jq '.[0].Size' | numfmt --to=iec-i --suffix=B)"
+          echo "Image: ${{ steps.image-name.outputs.full_image }}"
+          echo "Size: $(docker inspect ${{ steps.image-name.outputs.full_image }} | jq '.[0].Size' | numfmt --to=iec-i --suffix=B)"
 
   deploy-to-server:
     if: github.ref == format('refs/heads/{0}', needs.check-secrets.outputs.branch_name) && needs.check-secrets.outputs.secrets_available == 'true'
@@ -104,7 +112,7 @@ jobs:
 
               # Replace build section with image reference
               sed -i '/citrine:/,/build:/{ /build:/,/dockerfile:/d }' docker-compose.yml
-              sed -i '/citrine:$/a\    image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}' docker-compose.yml
+              sed -i '/citrine:$/a\    image: ${{ needs.build-image.outputs.image_name }}' docker-compose.yml
 
               echo "✅ docker-compose.yml updated"
             fi
@@ -162,4 +170,4 @@ jobs:
           echo "  • Docs: http://${{ secrets.SSH_HOST }}:8083/docs"
           echo "  • Domain: https://ocpp.gokabisa.com (once DNS configured)"
           echo ""
-          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          echo "Image: ${{ needs.build-image.outputs.image_name }}"
